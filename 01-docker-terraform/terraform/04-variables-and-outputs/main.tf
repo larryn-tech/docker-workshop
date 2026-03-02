@@ -176,9 +176,9 @@ resource "aws_security_group_rule" "allow_psql_in" {
 resource "aws_db_instance" "db_instance" {
   db_name                = var.db_name
   allocated_storage      = 20
-  storage_type           = "standard"
+  storage_type           = "gp3"
   engine                 = "postgres"
-  engine_version         = "12"
+  engine_version         = "18"
   instance_class         = "db.t3.micro"
   multi_az               = true
   username               = var.db_user

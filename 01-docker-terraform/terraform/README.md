@@ -516,12 +516,16 @@ module "web_app" {
 In `06-modules`, we have the configuration files for the same infrastructure described in the previous section. Here, we created a module by separating the resources from our original `main.tf` file into separate configuration files and moving them into a subdirectory (`demo-module`). 
 
 ```
-demo-module
-  ├── app.tf                # EC2 configuration
-  ├── module-variables.tf   # Variables
-  ├── network.tf            # VPC, route tables, security groups
-  ├── outputs.tf            # Outputs
-  ├── storage.tf            # RDS
+06-modules
+├── demo-module
+│    ├── app.tf                # EC2 configuration
+│    ├── module-variables.tf   # Variables
+│    ├── network.tf            # VPC, route tables, security groups
+│    ├── outputs.tf            # Outputs
+│    └── storage.tf            # RDS
+├── backend.tf                 # S3 backend
+├── keypair.tf                 # SSH keypair
+├── main.tf
 ```
 
 The S3 backend and SSH key pair resources are kept out of the module since we only need one instance of each. By keeping them at the root level, we treat them as global resources that can be shared across all environments.

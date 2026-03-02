@@ -465,3 +465,163 @@ Upon a successful connection, your terminal prompt will change (ex. to `mydb=>`)
 Enter `\q` to quit the RDS connection, and then `exit` to quit the EC2 connection.
 
 Run `terraform destroy`.
+
+## Modules
+
+**Modules** are self-contained, reusable packages of Terraform configuration files used to organize, simplify, and standardize infrastructure deployments. They group resources into a single unit, which can be called using a `module {}` block. 
+
+Every Terraform configuration has a **root module** , which consists of all the resources defined in the `.tf` files within working directory. The root module can call external modules (**child modules**) using a `module {}` block. Child modules can be stored locally within a subdirectory or remotely from a registry or a version control system (VCS).
+
+The [Terraform Registry](https://registry.terraform.io/) is the official, public repository managed by HashiCorp for sharing Terraform providers and modules. Its pre-built infrastructure components reduce the need to write complex configuration from scratch.
+
+```hcl
+# Local path
+module "web-app" {
+  source = "../web-app"
+}
+
+# Terraform Registry
+module "consul" {
+  source = "hashicorp/consul/aws"
+  version = "0.1.0"
+}
+
+# HTTPS
+module "example" {
+  source = "github.com/hashicorp/example?ref=v1.2.0"
+}
+
+# SSH 
+module "example" {
+  source = "git@github.com:hashicorp/example.git"
+}
+```
+
+Input variables can be passed into child modules via the `module {}` block. This approach abstracts away complex resource logic and offers some customizability while ensuring the module remains consistent and reusable across different projects and environments.
+
+```hcl
+module "web_app" {
+  source = "../web-app-module"
+
+  # Input variables
+  bucket_name = "web-app-data"
+  domain      = "example.com"
+  db_name     = "mydb"
+  db_user     = "root"
+  db_pass     = var.db_pass
+}
+```
+
+### Demo
+In `06-modules`, we have the configuration files for the same infrastructure described in the previous section. Here, we created a module by separating the resources from our original `main.tf` file into separate configuration files and moving them into a subdirectory (`demo-module`). 
+
+```
+demo-module
+  ├── app.tf                # EC2 configuration
+  ├── module-variables.tf   # Variables
+  ├── network.tf            # VPC, route tables, security groups
+  ├── outputs.tf            # Outputs
+  ├── storage.tf            # RDS
+```
+
+The S3 backend and SSH key pair resources are kept out of the module since we only need one instance of each. By keeping them at the root level, we treat them as global resources that can be shared across all environments.
+
+Encapsulating our configuration within a module allows us to provision two infrastructures for our `dev` and `staging` environments without having to completely recreate the resources for each environment. Instead, we can simply call the same module twice and pass in different input variables to customize environment-specific details, such as database names and passwords.
+
+```hcl
+# main.tf
+
+module "web_app_dev" {
+  source = "./demo-module"
+
+  # Input variables
+  environment_name = "dev"
+  db_name          = "web_app_dev_db"
+  db_user          = "root"
+  db_pass          = var.dev_db_pass
+  my_ip            = var.my_ip
+  ssh_key_name     = aws_key_pair.ln_ec2_kp.key_name
+}
+
+module "web_app_staging" {
+  source = "./demo-module"
+
+  # Input variables
+  environment_name = "staging"
+  db_name          = "web_app_staging_db"
+  db_user          = "root"
+  db_pass          = var.staging_db_pass
+  my_ip            = var.my_ip
+  ssh_key_name     = aws_key_pair.ln_ec2_kp.key_name
+}
+```
+
+We'll update our `terraform.tfvars` file to pass in our database passwords and IP address into the module.
+
+```hcl
+# terraform.tfvars
+
+dev_db_pass = "SecretPassword1"
+staging_db_pass = "SecretPassword2"
+my_ip     = "<your_ip_address>"
+```
+
+After running `terraform init`, `terraform plan`, and `terraform apply`, we'll find two instances each of EC2, VPC, and RDS in the AWS console. We should be able to connect to each EC2 instance and RDS database.
+
+#### Connecting to `dev` EC2 and RDS
+
+1. Output the `dev` database's endpoint for later.
+
+```shell
+terraform output dev_rds_endpoint
+```
+
+2. SSH into the EC2 instance.
+
+```shell
+ssh -i .ssh/ec2_kp.pem  ubuntu@$(terraform output -raw dev_web_public_dns)
+```
+
+3. Once connected to the instance, install `psql`.
+
+```shell
+sudo apt install postgresql-client
+```
+
+4. Use the endpoint from step 1 to connect to the `dev` database. Recall that we specified `web_app_dev_db` as the database name in `main.tf`
+
+```shell
+psql -h <dev_rds_endpoint> -p 5432 -d web_app_dev_db -U root          
+```
+
+5. Enter the password (`SecretPassword1`) for the `dev` database, which we specified in `terraform.tfvars`.
+
+#### Connecting to `staging` EC2 and RDS
+
+The process for connecting to the `staging` environment resources is very similar to connecting to the `dev` environment versions.
+
+1. Output the `staging` database's endpoint for later.
+
+```shell
+terraform output staging_rds_endpoint
+```
+
+2. SSH into the EC2 instance.
+
+```shell
+ssh -i .ssh/ec2_kp.pem  ubuntu@$(terraform output -raw staging_web_public_dns)
+```
+
+3. Once connected to the instance, install `psql`.
+
+```shell
+sudo apt install postgresql-client
+```
+
+4. Use the endpoint from step 1 to connect to the `staging` database. Recall that we specified `web_app_staging_db` as the database name in `main.tf`
+
+```shell
+psql -h <staging_rds_endpoint> -p 5432 -d web_app_staging_db -U root          
+```
+
+5. Enter the password (`SecretPassword2`) for the `staging` database, which we specified in `terraform.tfvars`.

@@ -120,9 +120,9 @@ Once installed, open http://localhost:8080 to access Kestra's UI and log in with
 | Execution         | A single run of a flow with a specific state. |
 | Variables         | Key–value pairs that let you reuse values across tasks. |
 | Plugin Defaults   | Default values applied to every task of a given type within one or more flows. |
-| Concurrency       | Ccontrol how many executions of a flow can run at the same time. |
+| Concurrency       | Control how many executions of a flow can run at the same time. |
 
-**Flows** serve as the blueprints for the workflows. They contain a set of tasks, their inputs and outputs, and orchestration logic. Flows specify what tasks to run, when they should run, and how they intereact.
+**Flows** serve as the blueprints for the workflows. They contain a set of tasks, their inputs and outputs, and orchestration logic. Flows specify what tasks to run, when they should run, and how they interact.
 
 To create a flow, click on the `+ Create Flow` button in the Kestra UI. We should see a new flow generated with sample code populated. 
 
@@ -164,7 +164,7 @@ variables:
   welcome_message: "Hello, {{ inputs.name }}!"
 ```
 
-**Variables** are stored at the namespace level and can be reused across that namespace's multiple flows. Here, we pass the `name` input into a `welcome_message` variable, allowing us to change the message. One example where chaining an input into a variable is particularly powerful is managing API endpoints. By passing a `region` or `version` input into a namespace-level URL variable, you ensure that downstream tasks always point to the correct resource without hardcoding strings into every individual flow.
+**Variables** are stored at the namespace level and can be reused across that namespace's multiple flows. Inputs are provided by the user at runtime, while variables are internal to the flow's logic. Here, we pass the `name` input into a `welcome_message` variable, allowing us to change the message. One example where chaining an input into a variable is particularly powerful is managing API endpoints. By passing a `region` or `version` input into a namespace-level URL variable, you ensure that downstream tasks always point to the correct resource without hardcoding strings into every individual flow.
 
 We see our `welcome_message` variable be used in the `hello_message` log task.
 
@@ -175,7 +175,7 @@ tasks:
     message: "{{ render(vars.welcome_message) }}"
 ```
 
-The `render()` function is used when a variable or input contains another expression that needs to be evaluated. Here, our `welcome_message` variable is wrapped in `render()`, which ensures that `{{ inputs.name }}` is evaluated before `welcome_message` is. 
+The `render()` function is used when a variable or input contains another expression that needs to be evaluated. Without `render()`, Kestra would simply print the string `"Hello, {{ inputs.name }}!"`. Using `render(vars.welcome_message)` tells Kestra to look inside the variable and resolve any internal brackets first.
 
 Tasks can store data in Kestra’s internal storage. **Outputs** allow us to retrieve the data and pass them between tasks and flows. 
 
@@ -199,7 +199,7 @@ We can view all of the outputs generated from the execution of a workflow in the
 
 ![02-kc-03]
 
-**Plugins defaults** allow us to apply default values to every task of a given type, helping us avoid repetition. We use a plugin default to assign an `ERROR` level to all of our logs.
+**Plugin defaults** allow us to apply default values to every task of a given type, helping us avoid repetition. We use a plugin default to assign an `ERROR` level to all of our logs.
 
 ```yaml
 pluginDefaults:

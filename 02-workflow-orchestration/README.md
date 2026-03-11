@@ -121,3 +121,119 @@ Once installed, open http://localhost:8080 to access Kestra's UI and log in with
 | Variables         | Key–value pairs that let you reuse values across tasks. |
 | Plugin Defaults   | Default values applied to every task of a given type within one or more flows. |
 | Concurrency       | Ccontrol how many executions of a flow can run at the same time. |
+
+**Flows** serve as the blueprints for the workflows. They contain a set of tasks, their inputs and outputs, and orchestration logic. Flows specify what tasks to run, when they should run, and how they intereact.
+
+To create a flow, click on the `+ Create Flow` button in the Kestra UI. We should see a new flow generated with sample code populated. 
+
+```yaml
+id: marten_822392
+namespace: company.team
+
+tasks:
+  - id: hello
+    type: io.kestra.plugin.core.log.Log
+    message: Hello World! 🚀
+```
+
+Every flow must have an identifier (`id`), a `namespace`, and a list of `tasks`. When we click on `Save`, the `id` and `namespace` can no longer be modified. To change them, a new flow would need to be created. `tasks`, on the other hand, can be changed as many times as we'd like.
+
+**Tasks** are the steps, or actions, within a flow. They can process inputs and variables and produce outputs for downstream consumption. With the Documentation panel open, we can click on a task to view information about the task type, including a description of what it does, examples, and required and/or optional properties and their possible values.
+
+![02-kc-01]
+
+We'll replace the sample flow provided by Kestra by copying and pasting the code from the `01_hello_world.yml` file located in the `02-workflow-orchestration/flows` folder.
+
+With **inputs**, we can pass data into our workflow at the start of an execution. This allows us to parameterize our flows and perform multiple executions of the same flow with different values. In our example, we create a string variable called `name` with a default value of `Will`.
+
+```yaml
+inputs:
+  - id: name
+    type: STRING
+    defaults: Will
+```
+
+When we click on `Execute`, we'll be able to enter a new value for our `name` input or keep the default value.
+
+![02-kc-02]
+
+Inputs are accessed with `{{ inputs.parameter_name }}`. For example:
+
+```yaml
+variables:
+  welcome_message: "Hello, {{ inputs.name }}!"
+```
+
+**Variables** are stored at the namespace level and can be reused across that namespace's multiple flows. Here, we pass the `name` input into a `welcome_message` variable, allowing us to change the message. One example where chaining an input into a variable is particularly powerful is managing API endpoints. By passing a `region` or `version` input into a namespace-level URL variable, you ensure that downstream tasks always point to the correct resource without hardcoding strings into every individual flow.
+
+We see our `welcome_message` variable be used in the `hello_message` log task.
+
+```yaml
+tasks:
+  - id: hello_message
+    type: io.kestra.plugin.core.log.Log
+    message: "{{ render(vars.welcome_message) }}"
+```
+
+The `render()` function is used when a variable or input contains another expression that needs to be evaluated. Here, our `welcome_message` variable is wrapped in `render()`, which ensures that `{{ inputs.name }}` is evaluated before `welcome_message` is. 
+
+Tasks can store data in Kestra’s internal storage. **Outputs** allow us to retrieve the data and pass them between tasks and flows. 
+
+```yaml
+tasks:
+  - id: generate_output
+    type: io.kestra.plugin.core.debug.Return
+    format: I was generated during this workflow.
+```
+
+The `generate_output` task returns a string as a `value` output for debugging. Outputs are accessed using `{{ outputs.output_task_id.attribute }}`. In the task below, we log the output from `generate_output`.
+
+```yaml
+tasks:
+  - id: log_output
+    type: io.kestra.plugin.core.log.Log
+    message: "This is an output: {{ outputs.generate_output.value }}"
+```
+
+We can view all of the outputs generated from the execution of a workflow in the **Outputs** tab of the **Executions** section.
+
+![02-kc-03]
+
+**Plugins defaults** allow us to apply default values to every task of a given type, helping us avoid repetition. We use a plugin default to assign an `ERROR` level to all of our logs.
+
+```yaml
+pluginDefaults:
+  - type: io.kestra.plugin.core.log.Log
+    values:
+      level: ERROR
+```
+
+When we navigate to the **Logs** tab within our flow, we can see that the each of our three log tasks are tagged `ERROR`.
+
+![02-kc-04]
+
+**Triggers** are used to automatically start the execution of a flow. They can be scheduled to execute on a regular cadence or event-based. In our case, we schedule our `01_hello_world` flow to execute every day at 10 AM. We also change our `name` input from `Will` to `Sarah`. Currently, we have the trigger disabled.
+
+```yaml
+triggers:
+  - id: schedule
+    type: io.kestra.plugin.core.trigger.Schedule
+    cron: "0 10 * * *"
+    inputs:
+      name: Sarah
+    disabled: true
+```
+
+Lastly, we have **concurrency**. This component lets us limit the number of executions a flows can run at the same time. We can control what happens when we reach this limit, either queue, cancel, or fail.
+
+```yaml
+concurrency:
+  behavior: FAIL
+  limit: 2
+```
+
+
+[02-kc-01]: ../img/02-kc-01.png
+[02-kc-02]: ../img/02-kc-02.png
+[02-kc-03]: ../img/02-kc-03.png
+[02-kc-04]: ../img/02-kc-04.png

@@ -8,8 +8,8 @@ The goal of this course is to master the fundamentals of data engineering by bui
 
 | Module | Topic | Status | Tech Stack |
 | :--- | :--- | :---: | :--- |
-| 1 | [Containerization & Infrastructure as Code](./01-docker-terraform/) | In Progress | Docker, Terraform, AWS, Postgres |
-| 2 | Workflow Orchestration | Upcoming | Kestra |
+| 1 | [Containerization & Infrastructure as Code](./01-docker-terraform/) | Completed | Docker, Terraform, AWS, Postgres |
+| 2 | [Workflow Orchestration](./02-workflow-orchestration/) | In-Progress | Kestra |
 | 3 | Data Warehousing | Upcoming | BigQuery |
 | 4 | Analytics Engineering | Upcoming | dbt |
 | 5 | Data Platforms | Upcoming | Bruin |
@@ -19,3 +19,4 @@ The goal of this course is to master the fundamentals of data engineering by bui
 ## 🛠️ Technologies Used
 * **Infrastructure:** Terraform (IaC), Amazon Web Services (AWS)
 * **Containerization:** Docker & Docker Compose
+* **Orchestration:** Kestra

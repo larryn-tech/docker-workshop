@@ -1,0 +1,67 @@
+id: 03_getting_started_data_pipeline
+namespace: zoomcamp
+
+# Define an input that allows us to specify which columns to keep during transformation process
+inputs:
+  - id: columns_to_keep
+    type: ARRAY
+    itemType: STRING
+    defaults:
+      - brand
+      - price
+
+tasks:
+  # Extract JSON file via HTTP request
+  # The URL of the downloaded file can be retrieved in the uri output
+  - id: extract
+    type: io.kestra.plugin.core.http.Download
+    uri: https://dummyjson.com/products
+
+  # Transform the data by keeping only the columns we specified
+  - id: transform
+    type: io.kestra.plugin.scripts.python.Script
+    containerImage: python:3.11-alpine
+    inputFiles:
+      # Input data from extract task into a file called data.json
+      data.json: "{{outputs.extract.uri}}"
+    outputFiles:
+      # Send all JSON files to Kestra's interal storage and generate as output files
+      - "*.json"
+    env:
+      # Map columns_to_keep input to environment variable for Python to access
+      COLUMNS_TO_KEEP: "{{inputs.columns_to_keep}}"
+    script: |
+      import json
+      import os
+
+      columns_to_keep_str = os.getenv("COLUMNS_TO_KEEP")
+      columns_to_keep = json.loads(columns_to_keep_str)
+
+      with open("data.json", "r") as file:
+          data = json.load(file)
+
+      filtered_data = [
+          {column: product.get(column, "N/A") for column in columns_to_keep}
+          for product in data["products"]
+      ]
+
+      with open("products.json", "w") as file:
+          json.dump(filtered_data, file, indent=4)
+
+  # Perform SQL query on transformed data and store results
+  - id: query
+    # duckdb.Queries task allows us to query data in memory without having to interacting with a database directly
+    type: io.kestra.plugin.jdbc.duckdb.Queries
+    inputFiles:
+      # Input products.json file generated from transform task
+      products.json: "{{outputs.transform.outputFiles['products.json']}}"
+    # Execute SQL commands to find average price for each brand
+    sql: |
+      INSTALL json;
+      LOAD json;
+      SELECT brand, round(avg(price), 2) as avg_price
+      FROM read_json_auto('{{workingDir}}/products.json')
+      GROUP BY brand
+      ORDER BY avg_price DESC;
+    # Store all rows from query to a file
+    fetchType: STORE

@@ -8,7 +8,7 @@ In this module, we will learn how to install Kestra, review key concepts, and us
 
 Kestra can be installed using Docker. We'll add to our `docker-compose.yml` file from Module 1.
 
-```dockerfile
+```yaml
 # docker-compose.yml
 volumes:
   ny_taxi_postgres_data:
@@ -26,7 +26,7 @@ volumes:
 We'll set up the volumes for persisting the metadata and internal storage for Kestra.
 
 
-```dockerfile
+```yaml
 # docker-compose.yml
 
 # [volumes]
@@ -231,6 +231,18 @@ concurrency:
   behavior: FAIL
   limit: 2
 ```
+
+## ETL Pipeline
+
+`flows/03_getting_started_data_pipeline.yaml` shows how we can extract JSON data via an HTTP request, transform the data to keep the data we need using Python, and load the modified data into DuckDB for querying.
+
+## Loading Taxi Data into Postgres
+
+`flows/04_postgres_taxi.yaml` contains the flow code for a pipeline that extracts the CSV taxi data partitioned by month and year, loads the files into a staging table, transforms the data, and merges the data to a final main table. `flows/05_postgres_taxi_scheduled.yaml` builds on this logic by adding a schedule trigger to automate the workflow daily.
+
+These flow implement some of the key concepts mentioned above to outline our tasks, parameterize the workflows, limit the number of concurrent executions, and automatically run the workflows. 
+
+
 
 
 [02-kc-01]: ../img/02-kc-01.png

@@ -1,0 +1,21 @@
+id: 06_aws_kv
+namespace: zoomcamp
+
+tasks:
+  - id: aws_region
+    type: io.kestra.plugin.core.kv.Set
+    key: AWS_REGION
+    kvType: STRING
+    value: us-west-1 # Set to your preferred AWS region
+  
+  - id: aws_bucket_name
+    type: io.kestra.plugin.core.kv.Set
+    key: AWS_BUCKET_NAME
+    kvType: STRING
+    value: your-name-kestra-aws # TODO: Make sure it's globally unique!
+  
+  - id: aws_database
+    type: io.kestra.plugin.core.kv.Set
+    key: AWS_DATABASE
+    kvType: STRING
+    value: zoomcamp

@@ -232,15 +232,119 @@ concurrency:
   limit: 2
 ```
 
-## ETL Pipeline
+## Creating Pipelines in Kestra
 
-`flows/03_getting_started_data_pipeline.yaml` shows how we can extract JSON data via an HTTP request, transform the data to keep the data we need using Python, and load the modified data into DuckDB for querying.
+### ETL vs ELT
 
-## Loading Taxi Data into Postgres
+**Extract, transform, and load (ETL)** and **extract, load, and transform (ELT)** are two approaches for integrating and processing data for analysis. 
 
-`flows/04_postgres_taxi.yaml` contains the flow code for a pipeline that extracts the CSV taxi data partitioned by month and year, loads the files into a staging table, transforms the data, and merges the data to a final main table. `flows/05_postgres_taxi_scheduled.yaml` builds on this logic by adding a schedule trigger to automate the workflow daily.
+**ETL** involves extracting raw data into a staging area, where it is transformed before being loaded into a target database. In `flows/03_getting_started_data_pipeline.yaml`, we extract JSON data via an HTTP request, transform the data to keep the data we need using Python, and load the modified data into DuckDB for querying.
 
-These flow implement some of the key concepts mentioned above to outline our tasks, parameterize the workflows, limit the number of concurrent executions, and automatically run the workflows. 
+With **ELT**, transformations to the data occurs *after* it has been loaded into the destination storage in its raw form. `flows/04_postgres_taxi.yaml` contains the flow code for a pipeline that extracts the NYC taxi data for the month and year we select and loads the data into a Postgres staging table. From there, we transform the data by adding a unique ID and the originating filename for each row before merging them into a final main table. `flows/05_postgres_taxi_scheduled.yaml` builds on this logic by adding a schedule trigger to automate the workflow daily.
+
+These flows implement some of the key concepts mentioned above to outline our tasks, parameterize the workflows, limit the number of concurrent executions, and automatically run the workflows. The ELT flows utilize **conditions** to determine which tasks to execute based on which inputs we entered when executing a flow.
+
+```yaml
+# 04_postgres_taxi.yaml
+tasks:
+  - id: if_yellow_taxi
+    type: io.kestra.plugin.core.flow.If
+    condition: "{{inputs.taxi == 'yellow'}}"
+    then:
+      # Tasks for creating tables and ELT for yellow taxi data 
+
+  - id: if_green_taxi
+    type: io.kestra.plugin.core.flow.If
+    condition: "{{inputs.taxi == 'green'}}"
+    then:
+      # Tasks for creating tables and ELT for green taxi data 
+```
+
+### ELT with AWS
+
+One advantage of the ELT approach is that the raw data is preserved, allowing us to interact with and transform it repeatedly without having to extract the data again. ELT also allows us to leverage the computing power of our destination data warehouse (AWS in our case) to perform the transformations.
+
+In this section, we will adapt our ELT flow for AWS. Rather than using a local Postgres database, our updated pipeline will:
+- Load the raw CSV files directly into an Amazon S3 bucket
+- Query the S3 data using AWS Athena to establish staging and main tables for both yellow and green taxis
+- Transform the monthly data within the staging tables by adding unique row IDs and originating filename
+- Merge the modified data into the main tables, resulting in one complete dataset for each taxi type
+
+#### Updating user group permissions
+
+In AWS, navigate to IAM and add AmazonAthenaFullAccess to the user group's permissions.
+
+#### KV store
+
+Kestra's key-value (KV) store helps us add information to our flows without having to directly hardcode it there. Information is still stored as plaintext, so sensitive information or credentials **should not** be stored here. We'll use `flows/06_aws_kv.yaml` to store our region, S3 bucket name, and database name.
+
+After we execute the flow in Kestra, we should see the key-value pairs added to the KV Store.
+
+![02-cp-01]
+
+#### Environment variables
+
+Create a `.env` file in the same directory as our `docker-compose.yml`. Make sure that this file is added to `.gitignore` and is not being tracked or committed. Add the AWS credentials to the file.
+
+```shell
+# .env
+AWS_ACCESS_KEY_ID=ENTER_SERVICE_ACCOUNT_ACCESS_KEY_ID_HERE
+AWS_SECRET_ACCESS_KEY=ENTER_SERVICE_ACCOUNT_SECRET_ACCESS_KEY_HERE
+```
+
+We'll add these variables to our `docker-compose.yml` so that Kestra can access them.
+
+```yaml
+# docker-compose.yml
+
+kestra:
+    # [...]
+
+    environment:
+      AWS_ACCESS_KEY_ID:
+      AWS_SECRET_ACCESS_KEY:
+      KESTRA_CONFIGURATION: 
+        # [...]
+```
+
+Restart your containers with `docker-compose down` and `docker-compose up -d` to make the environment variables available to use.
+
+#### Create S3 bucket
+
+In `flows/07_aws_setup.yaml`, we use a plugin to create an S3 bucket to store our raw and transformed data. We specify the bucket name and region using the values we stored in the KV store.
+
+```yaml
+id: 07_aws_setup
+namespace: zoomcamp
+
+tasks:
+  - id: create_s3_bucket
+    type: io.kestra.plugin.aws.s3.CreateBucket
+    bucket: "{{kv('AWS_BUCKET_NAME')}}"
+    region: "{{kv('AWS_REGION')}}"
+```
+
+#### Workflows
+
+`flows/08_aws_taxi.yaml` and `flows/09_aws_taxi_scheduled.yaml` are similar to the ELT pipelines we created earlier, except we are using AWS S3 and Athena instead of Postgres. 
+
+> **Note**: Google Gemini was used to generate the AWS version of these files (the course uses Google Cloud). While I did review the code and the flows appear to be executing as expected, there may be a more efficient way to create the flows.
+
+When we execute one of the flows for the October 2020 taxi data, by either inputting the month and year for `08_aws_taxi` or using backfill for `09_aws_taxi_scheduled`, the Gantt chart for the execution should look something like this:
+
+![02-cp-02]
+
+We see that the `if_green_taxi` task took the longest (~12s), followed by merging the tables and then uploading the data to S3.
+
+In AWS, our S3 bucket should now have the raw CSV file containing data for October 2020. 
+
+![02-cp-03]
+
+We can also use Athena to query our main and staging tables.
+
+![02-cp-04]
+
+When we query the total number of rows from `green_tripdata` and `green_tripdata_2020_10`, we'll see that each table has 95,120 rows. After executing the flow again, this time for November 2020, we get a total of 183,725 rows when we query `green_tripdata`. This difference of 88,605 matches the number of rows in `green_tripdata_2020_11`, indicating that the merge is working as expected.
 
 
 
@@ -249,3 +353,7 @@ These flow implement some of the key concepts mentioned above to outline our tas
 [02-kc-02]: ../img/02-kc-02.png
 [02-kc-03]: ../img/02-kc-03.png
 [02-kc-04]: ../img/02-kc-04.png
+[02-cp-01]: ../img/02-cp-01.png
+[02-cp-02]: ../img/02-cp-02.png
+[02-cp-03]: ../img/02-cp-03.png
+[02-cp-04]: ../img/02-cp-04.png

@@ -61,6 +61,8 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - kestra_tmp:/tmp/kestra-wd
     environment:
+      AWS_ACCESS_KEY_ID:
+      AWS_SECRET_ACCESS_KEY:
       KESTRA_CONFIGURATION: |
         datasources:
           postgres:

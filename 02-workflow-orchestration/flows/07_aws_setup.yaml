@@ -1,0 +1,8 @@
+id: 07_aws_setup
+namespace: zoomcamp
+
+tasks:
+  - id: create_s3_bucket
+    type: io.kestra.plugin.aws.s3.CreateBucket
+    bucket: "{{kv('AWS_BUCKET_NAME')}}"
+    region: "{{kv('AWS_REGION')}}"

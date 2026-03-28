@@ -1,0 +1,319 @@
+id: 09_aws_taxi_scheduled
+
+namespace: zoomcamp
+description: |
+  The CSV Data used in the course: https://github.com/DataTalksClub/nyc-tlc-data/releases
+  Converted for AWS (S3 + Athena Iceberg)
+
+inputs:
+  - id: taxi
+    type: SELECT
+    displayName: Select taxi type
+    values: [yellow, green]
+    defaults: green
+
+variables:
+  file: "{{inputs.taxi}}_tripdata_{{trigger.date | date('yyyy-MM')}}.csv"
+  s3_key: "raw/{{inputs.taxi}}/{{trigger.date | date('yyyy-MM')}}/{{vars.file}}"
+  s3_prefix: "s3://{{kv('AWS_BUCKET_NAME')}}/raw/{{inputs.taxi}}/{{trigger.date | date('yyyy-MM')}}/"
+  table: "{{inputs.taxi}}_tripdata_{{trigger.date | date('yyyy_MM')}}"
+  data: "{{outputs.extract.outputFiles[inputs.taxi ~ '_tripdata_' ~ (trigger.date | date('yyyy-MM')) ~ '.csv']}}"
+
+tasks:
+  - id: set_label
+    type: io.kestra.plugin.core.execution.Labels
+    labels:
+      file: "{{render(vars.file)}}"
+      taxi: "{{inputs.taxi}}"
+
+  - id: extract
+    type: io.kestra.plugin.scripts.shell.Commands
+    outputFiles:
+      - "*.csv"
+    taskRunner:
+      type: io.kestra.plugin.core.runner.Process
+    commands:
+      - wget -qO- https://github.com/DataTalksClub/nyc-tlc-data/releases/download/{{inputs.taxi}}/{{render(vars.file)}}.gz | gunzip > {{render(vars.file)}}
+
+  - id: upload_to_s3
+    type: io.kestra.plugin.aws.s3.Upload
+    from: "{{render(vars.data)}}"
+    bucket: "{{kv('AWS_BUCKET_NAME')}}"
+    key: "{{render(vars.s3_key)}}"
+
+  - id: create_athena_database
+    type: io.kestra.plugin.aws.athena.Query
+    database: "default"
+    query: |
+      CREATE DATABASE IF NOT EXISTS {{kv('AWS_DATABASE')}}
+      COMMENT 'A new database created by Kestra'      
+    outputLocation: "s3://{{kv('AWS_BUCKET_NAME')}}/athena/"
+
+  - id: if_yellow_taxi
+    type: io.kestra.plugin.core.flow.If
+    condition: "{{inputs.taxi == 'yellow'}}"
+    then:
+      - id: athena_yellow_tripdata
+        type: io.kestra.plugin.aws.athena.Query
+        query: |
+          CREATE TABLE IF NOT EXISTS yellow_tripdata
+          (
+              unique_row_id STRING COMMENT 'A unique identifier for the trip.',
+              filename STRING COMMENT 'The source filename.',      
+              VendorID STRING COMMENT 'A code indicating the LPEP provider.',
+              tpep_pickup_datetime TIMESTAMP COMMENT 'The date and time when the meter was engaged',
+              tpep_dropoff_datetime TIMESTAMP COMMENT 'The date and time when the meter was disengaged',
+              passenger_count INT COMMENT 'The number of passengers.',
+              trip_distance DOUBLE COMMENT 'The elapsed trip distance in miles.',
+              RatecodeID STRING COMMENT 'The final rate code.',
+              store_and_fwd_flag STRING COMMENT 'Store and forward flag.',
+              PULocationID STRING COMMENT 'TLC Taxi Zone in which the taximeter was engaged',
+              DOLocationID STRING COMMENT 'TLC Taxi Zone in which the taximeter was disengaged',
+              payment_type INT COMMENT 'A numeric code signifying payment method.',
+              fare_amount DOUBLE COMMENT 'The time-and-distance fare.',
+              extra DOUBLE COMMENT 'Miscellaneous extras and surcharges.',
+              mta_tax DOUBLE COMMENT 'MTA tax.',
+              tip_amount DOUBLE COMMENT 'Tip amount.',
+              tolls_amount DOUBLE COMMENT 'Total tolls paid.',
+              improvement_surcharge DOUBLE COMMENT 'Improvement surcharge.',
+              total_amount DOUBLE COMMENT 'The total amount charged.',
+              congestion_surcharge DOUBLE COMMENT 'Congestion surcharge.'
+          )
+          PARTITIONED BY (day(tpep_pickup_datetime))
+          LOCATION 's3://{{kv('AWS_BUCKET_NAME')}}/warehouse/yellow_tripdata/'
+          TBLPROPERTIES (
+            'table_type'='ICEBERG',
+            'format'='PARQUET'
+          );
+
+      - id: drop_athena_yellow_table_ext_if_exists
+        type: io.kestra.plugin.aws.athena.Query
+        query: |
+          DROP TABLE IF EXISTS {{render(vars.table)}}_ext;
+
+      - id: athena_yellow_table_ext
+        type: io.kestra.plugin.aws.athena.Query
+        query: |
+          CREATE EXTERNAL TABLE {{render(vars.table)}}_ext
+          (
+              VendorID STRING,
+              tpep_pickup_datetime STRING,
+              tpep_dropoff_datetime STRING,
+              passenger_count STRING,
+              trip_distance STRING,
+              RatecodeID STRING,
+              store_and_fwd_flag STRING,
+              PULocationID STRING,
+              DOLocationID STRING,
+              payment_type STRING,
+              fare_amount STRING,
+              extra STRING,
+              mta_tax STRING,
+              tip_amount STRING,
+              tolls_amount STRING,
+              improvement_surcharge STRING,
+              total_amount STRING,
+              congestion_surcharge STRING
+          )
+          ROW FORMAT DELIMITED FIELDS TERMINATED BY ','
+          STORED AS TEXTFILE
+          LOCATION '{{render(vars.s3_prefix)}}'
+          TBLPROPERTIES ('skip.header.line.count'='1');
+
+      - id: athena_yellow_view_tmp
+        type: io.kestra.plugin.aws.athena.Query
+        database: "{{kv('AWS_DATABASE')}}"
+        outputLocation: "s3://{{kv('AWS_BUCKET_NAME')}}/athena/{{inputs.taxi}}_tripdata/"
+        query: |
+          CREATE OR REPLACE VIEW {{render(vars.table)}} AS
+          SELECT
+            to_hex(md5(to_utf8(CONCAT(
+              COALESCE(VendorID, ''),
+              COALESCE(tpep_pickup_datetime, ''),
+              COALESCE(tpep_dropoff_datetime, ''),
+              COALESCE(PULocationID, ''),
+              COALESCE(DOLocationID, '')
+            )))) AS unique_row_id,
+            '{{render(vars.file)}}' AS filename,
+            VendorID,
+            try_cast(tpep_pickup_datetime AS TIMESTAMP) AS tpep_pickup_datetime,
+            try_cast(tpep_dropoff_datetime AS TIMESTAMP) AS tpep_dropoff_datetime,
+            try_cast(passenger_count AS INT) AS passenger_count,
+            try_cast(trip_distance AS DOUBLE) AS trip_distance,
+            RatecodeID,
+            store_and_fwd_flag,
+            PULocationID,
+            DOLocationID,
+            try_cast(payment_type AS INT) AS payment_type,
+            try_cast(fare_amount AS DOUBLE) AS fare_amount,
+            try_cast(extra AS DOUBLE) AS extra,
+            try_cast(mta_tax AS DOUBLE) AS mta_tax,
+            try_cast(tip_amount AS DOUBLE) AS tip_amount,
+            try_cast(tolls_amount AS DOUBLE) AS tolls_amount,
+            try_cast(improvement_surcharge AS DOUBLE) AS improvement_surcharge,
+            try_cast(total_amount AS DOUBLE) AS total_amount,
+            try_cast(congestion_surcharge AS DOUBLE) AS congestion_surcharge
+          FROM {{render(vars.table)}}_ext;
+
+      - id: athena_yellow_merge
+        type: io.kestra.plugin.aws.athena.Query
+        database: "{{kv('AWS_DATABASE')}}"
+        outputLocation: "s3://{{kv('AWS_BUCKET_NAME')}}/athena/{{inputs.taxi}}_tripdata/"
+        query: |
+          MERGE INTO yellow_tripdata T
+          USING {{render(vars.table)}} S
+          ON T.unique_row_id = S.unique_row_id
+          WHEN NOT MATCHED THEN
+            INSERT (unique_row_id, filename, VendorID, tpep_pickup_datetime, tpep_dropoff_datetime, passenger_count, trip_distance, RatecodeID, store_and_fwd_flag, PULocationID, DOLocationID, payment_type, fare_amount, extra, mta_tax, tip_amount, tolls_amount, improvement_surcharge, total_amount, congestion_surcharge)
+            VALUES (S.unique_row_id, S.filename, S.VendorID, S.tpep_pickup_datetime, S.tpep_dropoff_datetime, S.passenger_count, S.trip_distance, S.RatecodeID, S.store_and_fwd_flag, S.PULocationID, S.DOLocationID, S.payment_type, S.fare_amount, S.extra, S.mta_tax, S.tip_amount, S.tolls_amount, S.improvement_surcharge, S.total_amount, S.congestion_surcharge);
+
+  - id: if_green_taxi
+    type: io.kestra.plugin.core.flow.If
+    condition: "{{inputs.taxi == 'green'}}"
+    then:
+      - id: athena_green_tripdata
+        type: io.kestra.plugin.aws.athena.Query
+        database: "{{kv('AWS_DATABASE')}}"
+        outputLocation: "s3://{{kv('AWS_BUCKET_NAME')}}/athena/{{inputs.taxi}}_tripdata/"
+        query: |
+          CREATE TABLE IF NOT EXISTS green_tripdata
+          (
+              unique_row_id STRING COMMENT 'A unique identifier for the trip.',
+              filename STRING COMMENT 'The source filename.',      
+              VendorID STRING COMMENT 'A code indicating the LPEP provider.',
+              lpep_pickup_datetime TIMESTAMP COMMENT 'The date and time when the meter was engaged',
+              lpep_dropoff_datetime TIMESTAMP COMMENT 'The date and time when the meter was disengaged',
+              store_and_fwd_flag STRING COMMENT 'Store and forward flag.',
+              RatecodeID STRING COMMENT 'The final rate code.',
+              PULocationID STRING COMMENT 'TLC Taxi Zone in which the taximeter was engaged',
+              DOLocationID STRING COMMENT 'TLC Taxi Zone in which the taximeter was disengaged',
+              passenger_count INT COMMENT 'The number of passengers.',
+              trip_distance DOUBLE COMMENT 'The elapsed trip distance in miles.',
+              fare_amount DOUBLE COMMENT 'The time-and-distance fare.',
+              extra DOUBLE COMMENT 'Miscellaneous extras and surcharges.',
+              mta_tax DOUBLE COMMENT 'MTA tax.',
+              tip_amount DOUBLE COMMENT 'Tip amount.',
+              tolls_amount DOUBLE COMMENT 'Total tolls paid.',
+              ehail_fee DOUBLE,
+              improvement_surcharge DOUBLE COMMENT 'Improvement surcharge.',
+              total_amount DOUBLE COMMENT 'The total amount charged.',
+              payment_type INT COMMENT 'A numeric code signifying payment method.',
+              trip_type STRING COMMENT 'Trip type code.',
+              congestion_surcharge DOUBLE COMMENT 'Congestion surcharge.'
+          )
+          PARTITIONED BY (day(lpep_pickup_datetime))
+          LOCATION 's3://{{kv('AWS_BUCKET_NAME')}}/warehouse/green_tripdata/'
+          TBLPROPERTIES (
+            'table_type'='ICEBERG',
+            'format'='PARQUET'
+          );
+
+      - id: drop_athena_green_table_ext_if_exists
+        type: io.kestra.plugin.aws.athena.Query
+        database: "{{kv('AWS_DATABASE')}}"
+        outputLocation: "s3://{{kv('AWS_BUCKET_NAME')}}/athena/{{inputs.taxi}}_tripdata/"
+        query: |
+          DROP TABLE IF EXISTS {{render(vars.table)}}_ext;
+
+      - id: athena_green_table_ext
+        type: io.kestra.plugin.aws.athena.Query
+        query: |
+          CREATE EXTERNAL TABLE {{render(vars.table)}}_ext
+          (
+              VendorID STRING,
+              lpep_pickup_datetime STRING,
+              lpep_dropoff_datetime STRING,
+              store_and_fwd_flag STRING,
+              RatecodeID STRING,
+              PULocationID STRING,
+              DOLocationID STRING,
+              passenger_count STRING,
+              trip_distance STRING,
+              fare_amount STRING,
+              extra STRING,
+              mta_tax STRING,
+              tip_amount STRING,
+              tolls_amount STRING,
+              ehail_fee STRING,
+              improvement_surcharge STRING,
+              total_amount STRING,
+              payment_type STRING,
+              trip_type STRING,
+              congestion_surcharge STRING
+          )
+          ROW FORMAT DELIMITED FIELDS TERMINATED BY ','
+          STORED AS TEXTFILE
+          LOCATION '{{render(vars.s3_prefix)}}'
+          TBLPROPERTIES ('skip.header.line.count'='1');
+
+      - id: athena_green_view_tmp
+        type: io.kestra.plugin.aws.athena.Query
+        query: |
+          CREATE OR REPLACE VIEW {{render(vars.table)}} AS
+          SELECT
+            to_hex(md5(to_utf8(CONCAT(
+              COALESCE(VendorID, ''),
+              COALESCE(lpep_pickup_datetime, ''),
+              COALESCE(lpep_dropoff_datetime, ''),
+              COALESCE(PULocationID, ''),
+              COALESCE(DOLocationID, '')
+            )))) AS unique_row_id,
+            '{{render(vars.file)}}' AS filename,
+            VendorID,
+            try_cast(lpep_pickup_datetime AS TIMESTAMP) AS lpep_pickup_datetime,
+            try_cast(lpep_dropoff_datetime AS TIMESTAMP) AS lpep_dropoff_datetime,
+            store_and_fwd_flag,
+            RatecodeID,
+            PULocationID,
+            DOLocationID,
+            try_cast(passenger_count AS INT) AS passenger_count,
+            try_cast(trip_distance AS DOUBLE) AS trip_distance,
+            try_cast(fare_amount AS DOUBLE) AS fare_amount,
+            try_cast(extra AS DOUBLE) AS extra,
+            try_cast(mta_tax AS DOUBLE) AS mta_tax,
+            try_cast(tip_amount AS DOUBLE) AS tip_amount,
+            try_cast(tolls_amount AS DOUBLE) AS tolls_amount,
+            try_cast(ehail_fee AS DOUBLE) AS ehail_fee,
+            try_cast(improvement_surcharge AS DOUBLE) AS improvement_surcharge,
+            try_cast(total_amount AS DOUBLE) AS total_amount,
+            try_cast(payment_type AS INT) AS payment_type,
+            trip_type,
+            try_cast(congestion_surcharge AS DOUBLE) AS congestion_surcharge
+          FROM {{render(vars.table)}}_ext;
+
+      - id: athena_green_merge
+        type: io.kestra.plugin.aws.athena.Query
+        query: |
+          MERGE INTO green_tripdata T
+          USING {{render(vars.table)}} S
+          ON T.unique_row_id = S.unique_row_id
+          WHEN NOT MATCHED THEN
+            INSERT (unique_row_id, filename, VendorID, lpep_pickup_datetime, lpep_dropoff_datetime, store_and_fwd_flag, RatecodeID, PULocationID, DOLocationID, passenger_count, trip_distance, fare_amount, extra, mta_tax, tip_amount, tolls_amount, ehail_fee, improvement_surcharge, total_amount, payment_type, trip_type, congestion_surcharge)
+            VALUES (S.unique_row_id, S.filename, S.VendorID, S.lpep_pickup_datetime, S.lpep_dropoff_datetime, S.store_and_fwd_flag, S.RatecodeID, S.PULocationID, S.DOLocationID, S.passenger_count, S.trip_distance, S.fare_amount, S.extra, S.mta_tax, S.tip_amount, S.tolls_amount, S.ehail_fee, S.improvement_surcharge, S.total_amount, S.payment_type, S.trip_type, S.congestion_surcharge);
+
+  - id: purge_files
+    type: io.kestra.plugin.core.storage.PurgeCurrentExecutionFiles
+    description: If you'd like to explore Kestra outputs, disable it.
+    disabled: false
+
+pluginDefaults:
+  - type: io.kestra.plugin.aws
+    values:
+      region: "{{kv('AWS_REGION')}}"
+  - type: io.kestra.plugin.aws.athena.Query
+    values:
+      database: "{{kv('AWS_DATABASE')}}"
+      outputLocation: "s3://{{kv('AWS_BUCKET_NAME')}}/athena/{{inputs.taxi}}_tripdata/"
+
+triggers:
+  - id: green_schedule
+    type: io.kestra.plugin.core.trigger.Schedule
+    cron: "0 9 1 * *"
+    inputs:
+      taxi: green
+
+  - id: yellow_schedule
+    type: io.kestra.plugin.core.trigger.Schedule
+    cron: "0 10 1 * *"
+    inputs:
+      taxi: yellow

@@ -66,6 +66,153 @@ The cloud services layer manages a collection of stateless services that are res
 - Metadata management
 - Query parsing and optimization
 
+### Databases
+Databases must have a unique identifier in an account. The identifier must start with a letter and cannot contain spaces or special characters unless enclosed in double quotes.
+
+Databases can be created:
+1. by using the following SQL statement:
+
+```sql
+CREATE DATABASE my_database;
+```
+
+2. by cloning a different database in the same account:
+
+```sql
+CREATE DATABASE my_db_clone CLONE my_test_db;
+```
+
+3. by replicating it into another account:
+
+```sql
+CREATE DATABASE mydb1
+    AS REPLICA OF myorg.account1.mydb1
+    DATA_RETENTION_TIME_IN_DAYS = 10;
+```
+
+4. from a shared object created by another account:
+
+```sql
+CREATE DATABASE shared_db FROM SHARE utt783.share;
+```
+
+### Schemas
+
+Schemas must have a unique identifier in a database. The identifier must start with a letter and cannot contain spaces or special characters unless enclosed in double quotes.
+
+Schemas can be created:
+1. by using the following SQL statement:
+```sql
+CREATE SCHEMA my_schema;
+```
+
+2. by cloning a different schema in the same account:
+
+```sql
+CREATE SCHEMA my_schema_clone CLONE my_test_schema;
+```
+
+The database and schema names together form a namespace in Snowflake (ex. `my_database.my_schema`). Prepending the namespace to a table allows you to globally access that table.
+
+### Tables
+
+The various table types in Snowflake differ primarily in persistence, visibility, Time Travel, and Fail-safe capabilities. **Time Travel** allows users to query, clone, or restore deleted or modified data within a 0 - 90 day retention period (configurable by edition). **Fail-safe** refers to a 7-day emergency recovery period that occurs after Time Travel ends, accessible only by Snowflake support.
+
+The three primary table types are permaent, temporary, and transient.
+
+| | Permanent | Temporary | Transient |
+| - | - | - | - |
+| Persistence | Exists until explicitly removed | Persists for session duration | Exists until explicitly removed
+| Uses | Default table type | Transitory data | Staging |
+| Time Travel | 90 days | 1 day | 1 day |
+| Fail safe | ✔ | | |
+
+Other table types include:
+- **External** - read-only tables whose files are stored outside of Snowflake (i.e. AWS S3 or Google Cloud Storage)
+- **Hybrid** - supports OLTP and OLAP, uses a row-based storage engine that supports row locking for high concurrency, and enforces unique and referential integrity constraints
+- **Iceberg** - uses Apache Iceberg table format and allows you to manage cloud data from within Snowflake
+
+### Views
+
+A view allows the result of a query to be accessed as if it were a table. They offer a way to simplify complex queries, restrict contents of a table, and improve performance in some cases.
+
+A **standard view** does not store data. Instead, the underlying query runs every time the view is accessed. As a result, they do not contribute to storage cost.
+
+```sql
+CREATE VIEW as my_view AS
+SELECT col1, col2 FROM my_table;
+```
+
+**Materialized views** pre-compute and store the result set for faster retrieval. They are useful for frequent, complex queries on large datasets where the results change relatively slowly. They incur storage and automatic background maintenance costs.
+
+```sql
+CREATE MATERIALIZED VIEW as my_view AS
+SELECT col1, col2 FROM my_table;
+```
+
+Both standard and materialized views can be defined as **secure** to hide the underlying query logic and data structure. This is useful when working with sensitive data. Some query optimizations are bypassed to ensure security.
+
+```sql
+CREATE SECURE VIEW as my_view AS
+SELECT col1, col2 FROM my_table;
+```
+
+### Virtual Warehouses
+
+A **virtual warehouse** is a cluster of compute resources in Snowflake. It uses a Massively Parallel Processing (MPP) architecture to execute queries in parallel, dividing tasks across multiple compute nodes for high performance. With MPP, each node in the cluster locally stores a portion of the entire data set.
+
+Virtual warehouses provide the resources needed (e.g. CPU, memory, and temporary storage) to perform:
+- SQL `SELECT` statements that require compute resources (ex. retrieving rows from tables and views)
+- DML operations, such as `DELETE`,`INSERT`, `UPDATE`
+- loading and unloading operations, such as `COPY INTO <table>` and `COPY INTO <location>`
+
+#### Virtual warehouse sizes
+
+Virtual warehouses come in 6 sizes, ranging for X-Small (default) to 6X-Large. In general, query performance scales with warehouse size because larger warehouses have more compute resources available to process queries. The number of credits used per second also doubles at each warehouse size as you scale up. Credits are consumed when warehouses are in the STARTED state.
+
+#### Virtual warehouse state
+
+Virtual warehouses can be in one of three states: started, suspended, and resizing.
+- **STARTED** - virtual warehouse is currently active and ready to process queries; currently consuming credits
+- **SUSPENDED**  - virtual warehouse is shut down; not currently consuming credits
+- **RESIZING** - virtual warehouse is in the process of resizing; can occur at any time without affecting currently running queries
+
+> **NOTE**: By default, warehouses are in the STARTED state when created.
+
+#### SQL Statements
+
+```sql
+-- Create a warehouse
+CREATE WAREHOUSE my_warehouse;
+
+-- Create a X-Large warehouse
+CREATE WAREHOUSE my_xlarge_warehouse
+WITH WAREHOUSE_SIZE='X-SMALL';
+
+-- Use a warehouse
+USE WAREHOUSE my_warehouse;
+
+-- Suspend a warehouse and remove all its compute nodes
+ALTER WAREHOUSE my_warehouse SUSPEND;
+
+-- Specify seconds of inactivity before automatically suspending warehouse
+CREATE WAREHOUSE my_warehouse
+AUTO_SUSPEND=300; --600 by default (10 minutes)
+
+-- Specify whether submitting a SQL statement automatically resumes a warehouse 
+CREATE WAREHOUSE my_warehouse
+AUTO_RESUME=TRUE; --TRUE by default
+
+-- Specify whether to start the warehouse in the SUSPENDED state when created
+CREATE WAREHOUSE my_warehouse
+INITIALLY_SUSPENDED=TRUE; --FALSE by default
+
+-- Resume a warehouse
+ALTER WAREHOUSE my_warehouse RESUME;
+
+-- Show warehouses with information about their state, type, and size
+SHOW WAREHOUSES;
+```
 
 ## Resources
 - [Snowflake key concepts and architecture](https://docs.snowflake.com/en/user-guide/intro-key-concepts) - Snowflake Documentation

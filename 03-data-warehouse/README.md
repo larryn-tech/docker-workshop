@@ -164,6 +164,9 @@ We should be able to verify that connection was successful and view all of the C
 ```sql
 List @zoomcamp_s3_stage
 ```
+
+![03-ct-01]
+
 #### Query external stage
 
 We can query the files in the stage directly without having to load it into a table. The following command shows the first 3 columns and the originating CSV file for each of the first 10 rows.
@@ -177,6 +180,8 @@ SELECT
 FROM @zoomcamp_s3_stage
 LIMIT 10;
 ```
+
+![03-ct-02]
 
 When we run the `COUNT` function, we'll see that there are 6,835,902 rows in the stage.
 
@@ -240,4 +245,14 @@ FROM stg_nyc_taxi_raw
 LIMIT 10;
 ```
 
+![03-ct-03]
+
 Running the `COUNT` function shows that there are 6,835,902 rows in the table, indicating that all of the data from `zoomcamp_s3_stage` was copied over.
+
+
+
+
+
+[03-ct-01]: ../img/03-ct-01.png
+[03-ct-02]: ../img/03-ct-02.png
+[03-ct-03]: ../img/03-ct-03.png

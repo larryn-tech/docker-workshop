@@ -8,7 +8,7 @@
 | - | - | - |
 | Purpose  | Control and run essential business operations in real time  |  Plan, solve problems, support decisions, discover hidden insights |   
 | Data updates | Short, fast updates initiated by user | Data periodically refreshed with scheduled, long-running batch jobs |
-| Database design | *Normalized* databses for efficiency | *Denormalized* databases for analysis |
+| Database design | *Normalized* databases for efficiency | *Denormalized* databases for analysis |
 | Space requirements | Generally small if historical data is archived | Generally large due to aggregating large datasets |
 | Backup and recovery | Regular backups required to ensure business continuity and meet legal and governance requirements | Lost data can be reloaded from OLTP database as needed in lieu of regular backups |
 | Productivity | Increases productivity of end users | Increases productivity of business managers, data analysts, and executives |
@@ -17,203 +17,227 @@
 
 ## What is a data warehouse?
 
-A **data warehouse** is an OLAP solution used for reporting and data analysis. It serves as a centralized repository that aggregates data from multiple sources and generally consists of raw data, meta data, and summary data.
+A **data warehouse** is an OLAP solution used for reporting and data analysis. It serves as a centralized repository that aggregates data from multiple sources and generally consists of raw data, metadata, and summary data.
 
 ![Data warehouse architecture](https://upload.wikimedia.org/wikipedia/commons/8/8d/Data_warehouse_architecture.jpg)
 
 *Image courtesy of [Soha jamil via Wikimedia Commons](https://commons.wikimedia.org/wiki/File:Data_warehouse_architecture.jpg)*
 
-A **data mart** is a focused, subset of a data warehouse, designed to serve the specific needs of a particular department or business unit (e.g., Purchasing, Sales, or Inventory). It acts as a curated repository of data, enabling faster insights, increased user performance, and easier access compared to searching a complex, enterprise-wide data warehouse.
+A **data mart** is a focused subset of a data warehouse, designed to serve the specific needs of a particular department or business unit (e.g., Purchasing, Sales, or Inventory). It acts as a curated repository of data, enabling faster insights, increased user performance, and easier access compared to searching a complex, enterprise-wide data warehouse.
 
-Original data warehouses were hosted on-premises. While they do offer some advantages in improved latency and security over sensitive data and hardware, on-premise data warehouses come with high upfront costs, rigid scalability, and manual installation and maintenance. In contrast, cloud-based warehouses like Snowflake, Google BigQuery, Amazon Redshift, and Databricks allow organizations to scale operations elastically with high availability. These modern platforms follow a pay-as-you-go model and offload infrastructure maintenance, patching, and hardware management to the service provider.
+Original data warehouses were hosted on-premises. While they do offer some advantages in improved latency and security over sensitive data and hardware, on-premises data warehouses come with high upfront costs, rigid scalability, and manual installation and maintenance. In contrast, cloud-based warehouses like Snowflake, Google BigQuery, Amazon Redshift, and Databricks allow organizations to scale operations elastically with high availability. These modern platforms follow a pay-as-you-go model and offload infrastructure maintenance, patching, and hardware management to the service provider.
 
 ## Snowflake
 
-Snowflake is a cloud-native, data platform that brings together data storage, processing, and analysis. As a fully-managed SaaS (software as a service), Snowflake uses public cloud infrastructure (Google Cloud, Microsoft Azure, and AWS) to host virtual compute instances and persistent data storage. It handles all aspects of authentication, configuration, resource management, data protection, availability, and optimization. 
+Snowflake is a cloud-native, data platform that brings together data storage, processing, and analysis. A brief introduction into the platform can be found [here](03-data-warehouse/snowflake-intro.md). 
 
-It also allows enterprises to build data pipelines, perform data analysis, create and deploy LLMs and ML models, and develop and distribute apps.
+In this module, we will integrate AWS S3 with Snowflake to perform queries and data analysis. By using a **Storage Integration** object, we can use AWS IAM roles to allow Snowflake to access authorized S3 buckets without having to directly provide credentials.
 
-### Architecture
+### Prerequisites
 
-Snowflake uses a multi-cluster shared data architecture that is designed specifically for the cloud. The architecture features three key layers:
-- Database storage
-- Compute
-- Cloud services
+This module picks up from the last one where we used Kestra to load the NYC taxi data into a S3 bucket. Using the `09_aws_taxi_scheduled.yaml` [flow](02-workflow-orchestration/flows/09_aws_taxi_scheduled.yaml), I retrieved the data for 2019 and 2020 using backfill.
 
-![Snowflake architecture](https://docs.snowflake.com/en/_images/architecture-overview.png)
+### Configure secure access to AWS
 
-By decoupling the storage, compute, and managment layers, each layer can be scaled independently of one another. We can scale vertically by increasing the size of our warehouse to better handle complex queries. We can also scale horizontally by adding more clusters to improve concurrency.
+While the full guide can be found in [Snowflake's documentation](https://docs.snowflake.com/en/user-guide/data-load-s3-config-storage-integration), I will highlight some of the steps here.
 
-#### Database storage layer
+#### Configure S3 permissions
 
-Snowflake supports structured (e.g. tables), semi-structured data (e.g. JSON and XML), and unstructured data (e.g. image or audio). Data is structured in a compressed, columnar format when loaded into a Snowflake table.
+In the AWS Management Console, create a policy that provides Snowflake with read-only access to the S3 bucket.  
 
-Data is automatically divided into **micro-partitions** to improve efficiency. Snowflake also manages the organization, file size, structure, compression, metadata, and statistics of stored data.
+```json
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": [
+                "s3:GetObject",
+                "s3:GetObjectVersion"
+            ],
+            "Resource": "arn:aws:s3:::ln-zoomcamp-kestra-aws/raw/green/*"
+        },
+        {
+            "Effect": "Allow",
+            "Action": [
+                "s3:ListBucket",
+                "s3:GetBucketLocation"
+            ],
+            "Resource": "arn:aws:s3:::ln-zoomcamp-kestra-aws",
+            "Condition": {
+                "StringLike": {
+                    "s3:prefix": [
+                        "raw/green/*"
+                    ]
+                }
+            }
+        }
+    ]
+}
+```
+- Replace the value for the first `Resource` key with your bucket name and folder path prefix
+- Replace the value for the second `Resource` key with your bucket name
+- Replace the value for `s3:prefix` key with the folder path prefix
 
-#### Compute layer
+Enter a **Policy name**, such as `zoomcamp_snowflake_access`, and click on **Create policy**.
 
-Snowflake uses clusters of compute resources to process SQL statements and run code in languages, such as Java, Python, and Scala. Each cluster, referred to as a **virtual warehouse**, acts independently and doesn’t share compute resources with other clusters.
+#### Create IAM role
 
-When processing a SQL statement, we select which virtual warehouse we want to use. The virtual warehouse will then make a remote call to the data storage layer, where it will retrieve the raw table data and store it on a local cache before computing our results.
+From the IAM Dashboard:
+1. Select **Roles** from the left sidebar
+2. Click on **Create role**
+3. Select **AWS account** as the trusted entity type
+4. Select **Another AWS account** and enter your account ID into the field below
+    - This Account ID will be changed later
+5. Check the **Require external ID (Best practice when a third party will assume this role)** option and enter a placeholder ID such as `0000`
+    - This External ID will be changed later
+6. Click **Next**
+7. Add the permission we created earlier (ex. `zoomcamp_snowflake_access`)
+8. Click **Next**
+9. Enter a role name (ex. `zoomcamp_snowflake_role`)
+10. Click **Create role**
+11. Click on the newly created role and note the **ARN**, as we will be using it in the next step
+    - It should look like: `arn:aws:iam::<account_id>:role/zoomcamp_snowflake_role`
 
-Virtual warehouses can be created or dropped instantly. They can also be paused and resumed. They will only incur costs when in the resume state. They also come in various sizes.
+#### Create cloud storage integration
 
-#### Cloud services layer
-
-The cloud services layer manages a collection of stateless services that are responsible for tasks including:
-- Security, authentication, and access control
-- Infrastructure management with cloud platforms
-- Metadata management
-- Query parsing and optimization
-
-### Databases
-Databases must have a unique identifier in an account. The identifier must start with a letter and cannot contain spaces or special characters unless enclosed in double quotes.
-
-Databases can be created:
-1. by using the following SQL statement:
+In Snowflake, execute the following SQL command as an `ACCOUNTADMIN` or a role with `CREATE INTEGRATION` privilege:
 
 ```sql
-CREATE DATABASE my_database;
+CREATE STORAGE INTEGRATION s3_integration
+  TYPE = EXTERNAL_STAGE
+  STORAGE_PROVIDER = 'S3'
+  ENABLED = TRUE
+  STORAGE_AWS_ROLE_ARN = 'arn:aws:iam::<account_id>:role/zoomcamp_snowflake_role'
+  STORAGE_ALLOWED_LOCATIONS = ('s3://ln-zoomcamp-kestra-aws/raw/green/');
 ```
 
-2. by cloning a different database in the same account:
+- Replace the value for `STORAGE_AWS_ROLE_ARN` with the **ARN** for the `zoomcamp_snowflake_role` created in the previous step. 
+- Replace the value for `STORAGE_ALLOWED_LOCATIONS` with your bucket name
+
+#### Establish the Trust Relationship
+
+Run the following SQL command in Snowflake:
 
 ```sql
-CREATE DATABASE my_db_clone CLONE my_test_db;
+DESC INTEGRATION s3_integration;
 ```
 
-3. by replicating it into another account:
+We'll use the values for `STORAGE_AWS_IAM_USER_ARN` and `STORAGE_AWS_EXTERNAL_ID` to replace the account ID and external ID placeholders we used earlier.
+
+| Property | Description |
+| - | - |
+| `STORAGE_AWS_IAM_USER_ARN` | Snowflake provisions a single IAM user for your entire Snowflake account. All S3 storage integrations in your account use that IAM user. |
+| `STORAGE_AWS_EXTERNAL_ID` | The external ID that Snowflake uses to establish a trust relationship with AWS. |
+
+
+Back in the AWS Management Console:
+1. Click on the **Trust relationships** tab of your created role's summary page
+2. Click on **Edit trust policy**
+3. Replace the value for `AWS` with the value from `STORAGE_AWS_IAM_USER_ARN`
+    - Previously we used our AWS account ID
+4. Replace the value for `sts:ExternalId` with the value from `STORAGE_AWS_EXTERNAL_ID`
+    - Previously we used `0000`
+5. Click on **Update policy** to save your changes
+
+### Create an external stage 
+Back in Snowflake, we'll create a **File Format** object that instructs Snowflake how to interpret our CSV files.
 
 ```sql
-CREATE DATABASE mydb1
-    AS REPLICA OF myorg.account1.mydb1
-    DATA_RETENTION_TIME_IN_DAYS = 10;
+CREATE OR REPLACE FILE FORMAT nyc_csv_format 
+  TYPE = 'CSV' 
+  FIELD_DELIMITER = ',' 
+  SKIP_HEADER = 1;
 ```
 
-4. from a shared object created by another account:
+We'll then create an external stage that references the storage integration using the following command:
 
 ```sql
-CREATE DATABASE shared_db FROM SHARE utt783.share;
+CREATE OR REPLACE STAGE zoomcamp_s3_stage
+  STORAGE_INTEGRATION = s3_integration
+  URL = 's3://ln-zoomcamp-kestra-aws/raw/green/'
+  FILE_FORMAT = nyc_csv_format;
 ```
 
-### Schemas
-
-Schemas must have a unique identifier in a database. The identifier must start with a letter and cannot contain spaces or special characters unless enclosed in double quotes.
-
-Schemas can be created:
-1. by using the following SQL statement:
-```sql
-CREATE SCHEMA my_schema;
-```
-
-2. by cloning a different schema in the same account:
+We should be able to verify that connection was successful and view all of the CSV files in the bucket with the following SQL command:
 
 ```sql
-CREATE SCHEMA my_schema_clone CLONE my_test_schema;
+List @zoomcamp_s3_stage
 ```
+#### Query external stage
 
-The database and schema names together form a namespace in Snowflake (ex. `my_database.my_schema`). Prepending the namespace to a table allows you to globally access that table.
-
-### Tables
-
-The various table types in Snowflake differ primarily in persistence, visibility, Time Travel, and Fail-safe capabilities. **Time Travel** allows users to query, clone, or restore deleted or modified data within a 0 - 90 day retention period (configurable by edition). **Fail-safe** refers to a 7-day emergency recovery period that occurs after Time Travel ends, accessible only by Snowflake support.
-
-The three primary table types are permaent, temporary, and transient.
-
-| | Permanent | Temporary | Transient |
-| - | - | - | - |
-| Persistence | Exists until explicitly removed | Persists for session duration | Exists until explicitly removed
-| Uses | Default table type | Transitory data | Staging |
-| Time Travel | 90 days | 1 day | 1 day |
-| Fail safe | ✔ | | |
-
-Other table types include:
-- **External** - read-only tables whose files are stored outside of Snowflake (i.e. AWS S3 or Google Cloud Storage)
-- **Hybrid** - supports OLTP and OLAP, uses a row-based storage engine that supports row locking for high concurrency, and enforces unique and referential integrity constraints
-- **Iceberg** - uses Apache Iceberg table format and allows you to manage cloud data from within Snowflake
-
-### Views
-
-A view allows the result of a query to be accessed as if it were a table. They offer a way to simplify complex queries, restrict contents of a table, and improve performance in some cases.
-
-A **standard view** does not store data. Instead, the underlying query runs every time the view is accessed. As a result, they do not contribute to storage cost.
+We can query the files in the stage directly without having to load it into a table. The following command shows the first 3 columns and the originating CSV file for each of the first 10 rows.
 
 ```sql
-CREATE VIEW as my_view AS
-SELECT col1, col2 FROM my_table;
+SELECT 
+    $1::INT as vendor_id,
+    $2::TIMESTAMP as pickup_datetime,
+    $3::TIMESTAMP  as dropoff_datetime,
+    metadata$filename
+FROM @zoomcamp_s3_stage
+LIMIT 10;
 ```
 
-**Materialized views** pre-compute and store the result set for faster retrieval. They are useful for frequent, complex queries on large datasets where the results change relatively slowly. They incur storage and automatic background maintenance costs.
+When we run the `COUNT` function, we'll see that there are 6,835,902 rows in the stage.
 
 ```sql
-CREATE MATERIALIZED VIEW as my_view AS
-SELECT col1, col2 FROM my_table;
+SELECT COUNT($1) FROM @zoomcamp_s3_stage
 ```
 
-Both standard and materialized views can be defined as **secure** to hide the underlying query logic and data structure. This is useful when working with sensitive data. Some query optimizations are bypassed to ensure security.
+### Create table and load data
+
+For faster performance and easier querying, we'll move the data from the external stage into a table.
+
+To create the table, we'll refer to the [NYC Green Trips Data Dictionary](https://www.nyc.gov/assets/tlc/downloads/pdf/data_dictionary_trip_records_green.pdf) and use the following command:
 
 ```sql
-CREATE SECURE VIEW as my_view AS
-SELECT col1, col2 FROM my_table;
+CREATE OR REPLACE TABLE stg_nyc_taxi_raw (
+    VendorID TEXT,
+    lpep_pickup_datetime TIMESTAMP_NTZ,
+    lpep_dropoff_datetime TIMESTAMP_NTZ,
+    store_and_fwd_flag TEXT,
+    RatecodeID TEXT,
+    PULocationID TEXT,
+    DOLocationID TEXT,
+    passenger_count INTEGER,
+    trip_distance DOUBLE PRECISION,
+    fare_amount DOUBLE PRECISION,
+    extra DOUBLE PRECISION,
+    mta_tax DOUBLE PRECISION,
+    tip_amount DOUBLE PRECISION,
+    tolls_amount DOUBLE PRECISION,
+    ehail_fee DOUBLE PRECISION,
+    improvement_surcharge DOUBLE PRECISION,
+    total_amount DOUBLE PRECISION,
+    payment_type TEXT,
+    trip_type TEXT,
+    congestion_surcharge DOUBLE PRECISION,
+    source_file_name TEXT
+);
 ```
 
-### Virtual Warehouses
-
-A **virtual warehouse** is a cluster of compute resources in Snowflake. It uses a Massively Parallel Processing (MPP) architecture to execute queries in parallel, dividing tasks across multiple compute nodes for high performance. With MPP, each node in the cluster locally stores a portion of the entire data set.
-
-Virtual warehouses provide the resources needed (e.g. CPU, memory, and temporary storage) to perform:
-- SQL `SELECT` statements that require compute resources (ex. retrieving rows from tables and views)
-- DML operations, such as `DELETE`,`INSERT`, `UPDATE`
-- loading and unloading operations, such as `COPY INTO <table>` and `COPY INTO <location>`
-
-#### Virtual warehouse sizes
-
-Virtual warehouses come in 6 sizes, ranging for X-Small (default) to 6X-Large. In general, query performance scales with warehouse size because larger warehouses have more compute resources available to process queries. The number of credits used per second also doubles at each warehouse size as you scale up. Credits are consumed when warehouses are in the STARTED state.
-
-#### Virtual warehouse state
-
-Virtual warehouses can be in one of three states: started, suspended, and resizing.
-- **STARTED** - virtual warehouse is currently active and ready to process queries; currently consuming credits
-- **SUSPENDED**  - virtual warehouse is shut down; not currently consuming credits
-- **RESIZING** - virtual warehouse is in the process of resizing; can occur at any time without affecting currently running queries
-
-> **NOTE**: By default, warehouses are in the STARTED state when created.
-
-#### SQL Statements
+We can then load the data with:
 
 ```sql
--- Create a warehouse
-CREATE WAREHOUSE my_warehouse;
-
--- Create a X-Large warehouse
-CREATE WAREHOUSE my_xlarge_warehouse
-WITH WAREHOUSE_SIZE='X-SMALL';
-
--- Use a warehouse
-USE WAREHOUSE my_warehouse;
-
--- Suspend a warehouse and remove all its compute nodes
-ALTER WAREHOUSE my_warehouse SUSPEND;
-
--- Specify seconds of inactivity before automatically suspending warehouse
-CREATE WAREHOUSE my_warehouse
-AUTO_SUSPEND=300; --600 by default (10 minutes)
-
--- Specify whether submitting a SQL statement automatically resumes a warehouse 
-CREATE WAREHOUSE my_warehouse
-AUTO_RESUME=TRUE; --TRUE by default
-
--- Specify whether to start the warehouse in the SUSPENDED state when created
-CREATE WAREHOUSE my_warehouse
-INITIALLY_SUSPENDED=TRUE; --FALSE by default
-
--- Resume a warehouse
-ALTER WAREHOUSE my_warehouse RESUME;
-
--- Show warehouses with information about their state, type, and size
-SHOW WAREHOUSES;
+COPY INTO stg_nyc_taxi_raw
+FROM (
+  SELECT 
+    $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,                -- Select all 20 columns from stage
+    $11,$12,$13,$14,$15,$16,$17,$18,$19,$20,
+    metadata$filename                              -- Include the filename metadata
+  FROM @zoomcamp_s3_stage
+)
+FILE_FORMAT = nyc_csv_format;
 ```
 
-## Resources
-- [Snowflake key concepts and architecture](https://docs.snowflake.com/en/user-guide/intro-key-concepts) - Snowflake Documentation
-- [Learn Snowflake – Full 1-Hour Crash Course for Complete Beginners](https://www.youtube.com/watch?v=2t-ls6ekA8E) - YouTube video from [Tom Bailey](https://www.youtube.com/@tombaileycourses)
+#### Query table data
+
+We'll view the first 10 rows of the `stg_nyc_taxi_raw` table with:
+
+```sql
+SELECT * 
+FROM stg_nyc_taxi_raw 
+LIMIT 10;
+```
+
+Running the `COUNT` function shows that there are 6,835,902 rows in the table, indicating that all of the data from `zoomcamp_s3_stage` was copied over.

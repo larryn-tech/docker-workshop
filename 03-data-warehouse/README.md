@@ -209,7 +209,7 @@ To create the table, we'll refer to the [NYC Green Trips Data Dictionary](https:
 CREATE OR REPLACE TABLE RAW.green_taxi_trips_raw (
     unique_row_id TEXT,
     filename TEXT,
-    vendor_id TEXT,
+    vendorid TEXT,
     pickup_datetime TEXT,
     dropoff_datetime TEXT,
     store_and_fwd_flag TEXT,
@@ -241,13 +241,13 @@ FROM (
   SELECT
     $1:unique_row_id,
     $1:filename,
-    $1:VendorID,
+    $1:vendorid,
     $1:lpep_pickup_datetime,
     $1:lpep_dropoff_datetime,
     $1:store_and_fwd_flag,
-    $1:RatecodeID,
-    $1:PULocationID,
-    $1:DOLocationID,
+    $1:ratecodeid,
+    $1:pulocationid,
+    $1:dolocationid,
     $1:passenger_count,
     $1:trip_distance,
     $1:fare_amount,
@@ -263,8 +263,7 @@ FROM (
     $1:congestion_surcharge,
     CURRENT_TIMESTAMP()
   FROM @zoomcamp_s3_stage
-)
-FILE_FORMAT = nyc_parquet_format;
+);
 ```
 
 ### Query table data
@@ -293,7 +292,7 @@ Now, we transform the raw text data into a clean, typed table in the STAGING sch
 CREATE OR REPLACE TABLE STAGING.green_taxi_trips AS
 SELECT
     unique_row_id,
-    vendor_id,
+    vendorid,
     TRY_CAST(pickup_datetime AS TIMESTAMP_NTZ) AS pickup_datetime,
     TRY_CAST(dropoff_datetime AS TIMESTAMP_NTZ) AS dropoff_datetime,
     store_and_fwd_flag,

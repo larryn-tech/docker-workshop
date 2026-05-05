@@ -14,13 +14,13 @@ An engineer may be involved in:
 
 In dimensional modeling, data is organized into facts and dimensions:
 - **Facts** are the measurements, metrics or facts of a business process
-- **Dimensions** are corresponds to a business entity and provides context to a business process
+- **Dimensions** correspond to a business entity and provides context to a business process
 
-A central fact table connects to surrounding dimension tables in a starburst or star shape, which is where the name **star schema** comes from.
+A central fact table connects to surrounding dimension tables in a star shape, which is where the name **star schema** comes from.
 
 ## Architecture of dimensional modeling 
 
-Data flows through a ware house in three stages:
+Data flows through a warehouse in three stages:
 
 1. **Stage area**
     - Contains the raw data
@@ -110,8 +110,8 @@ dbt suggests organizing models into three layers:
     - Standardizing values
 - 1:1 copy means the model contains the same number of rows and columns as the raw source
 
-##### `staging/`
-- Intermediate between raw data and data ready for end users
+##### `intermediate/`
+- Acts as the bridge between raw staging data and final business entities.
 - Catch-all for:
     - Complex joins
     - Heavy-duty cleaning or standardization
@@ -127,7 +127,7 @@ dbt suggests organizing models into three layers:
 
 ### Anatomy of a dbt model
 
-When executing `dbt run`, we are running a model that will transform our data. Models are primarily written as a `SELECT` statment and saved as a `.sql` file.
+When executing `dbt run`, we are running a model that will transform our data. Models are primarily written as a `SELECT` statement and saved as a `.sql` file.
 
 Here, we instruct dbt to materialize `my_model.sql` as a table in the database.
 
@@ -143,7 +143,9 @@ FROM staging.source_table
 WHERE record_state = 'ACTIVE'
 ```
 
-dbt takes the SQL code above, compiles it, and runs it in the data warehouse. The compiled code would look like this:
+dbt takes the SQL code above, compiles it, and runs it in the data warehouse. It wraps the `SELECT` in a `CREATE VIEW` or `CREATE TABLE` depending on the config. Since dbt handles the DDL (Data Definition Language), we can focus on the logic.
+
+The compiled code would look like this:
 
 ```sql
 CREATE TABLE my_schema.my_model as (
@@ -168,7 +170,7 @@ Like libraries in programming languagtes, dbt offers packages that contain model
 # packages.yml
 packages:
     - package: dbt-labs/dbt_utils
-      version: 0.8.0
+      version: [">=1.3.0", "<2.0.0"]
 ```
 
 We can then use a macro from a package like so:
@@ -177,7 +179,7 @@ We can then use a macro from a package like so:
 -- stg_green_tripdata.sql
 
 SELECT
-    {{ dbt_utils.surrogate_key(['vendorid', 'lpep_pickup_datetime]) }} as tripid,
+    {{ dbt_utils.generate_surrogate_key(['vendorid', 'lpep_pickup_datetime']) }} as tripid,
     -- [...]
 ```
 

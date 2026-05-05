@@ -512,7 +512,7 @@ If you loaded the Yellow taxi data as well, you would union the two datasets in 
 
 This project only works with the Green taxi data, so the union step is excluded here. Instead, we will just join the Green taxi data with the taxi zone lookup table.
 
-In the `models/core` directory, add a file called `fct_trips.sql`.
+In the `models/` directory, create a new folder called `intermediate` abd add a file called `fct_trips.sql`.
 
 ```sql
 -- fct_trips.sql

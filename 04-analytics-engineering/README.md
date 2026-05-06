@@ -1,11 +1,20 @@
 # dbt
 
-In this module, we will be taking the raw green taxi trip data stored in Snowflake, clean and modify it, and then merge it with a taxi zone lookup CSV file.
+**dbt (data build tool)** is a framework that allows data engineers to transform data directly within their warehouse using software engineering best practices like modularity, version control, and automated testing. By combining SQL with Jinja templating, dbt enables the creation of reusable, maintainable, and self-documenting data pipelines.
 
+In this module, we implement an ELT workflow to convert raw NYC Green Taxi records into a structured Star Schema. Our process involves:
+
+- Staging: Cleaning and standardizing raw Snowflake data
+
+- Macro Development: Creating reusable Jinja logic to handle complex business rules
+
+- Dimensional Modeling: Utilizing dbt Seeds to ingest taxi zone metadata and performing  joins to create the final Fact and Dimension tables
+
+![04-db-01]
 
 ## Snowflake setup
 
-Here, we will create the resources needed for dbt to connect to Snowflake and access our databases. This includes a:
+To begin, we will create the resources needed for dbt to connect to Snowflake and access our databases. This includes a:
 - Database
 - Schema
 - Warehouse
@@ -47,7 +56,7 @@ GRANT ROLE dbt_transformer TO USER dbt_user;
 
 ### Setup verification
 
-To verify that the user was correctly setup and has the correct permissions, sign in as `dbt_user` and run the following sql statements:
+To verify that the user was correctly set up and has the correct permissions, sign in as `dbt_user` and run the following sql statements:
 
 ```sql
 USE WAREHOUSE DBT_WH;
@@ -61,7 +70,7 @@ CREATE OR REPLACE TABLE TEST_TABLE AS (
 SELECT * FROM TEST_TABLE;
 ```
 
-Once we verified our permissions, we can drop the test schema and table with:
+After verifying our permissions, we can drop the test schema and table with:
 
 ```sql
 DROP SCHEMA TEST_SCHEMA;
@@ -70,9 +79,9 @@ DROP SCHEMA TEST_SCHEMA;
 
 ## dbt cloud setup
 
-For this step, you will need your Snowflake account identifier. The identifier is in the format `<orgname>-<account_name>`. It can be found in the Snowsight URL after signing in:
+For this step, you will need your Snowflake account identifier. The identifier is in the format `<ORGNAME>-<ACCOUNT_NAME>`. It can be found in the Snowsight URL after signing in:
 
-`https://app.snowflake.com/<orgname>/<account_name>/#/homepage`
+`https://app.snowflake.com/<ORGNAME>/<ACCOUNT_NAME>/#/homepage`
 
 It can also be found by: 
 - Clicking on your account name in the bottom-left corner
@@ -188,7 +197,7 @@ select * from renamed
 
 Since we will be creating our own row identifier later, we can remove `unique_row_id` from the view.
 
-Clicking `Save` will automatically create a `staging/nyc_taxi` path in the `models/` folder and save the `stg_nyc_taxi__GREEN_TAXI_TRIPS_RAW.sql` file there. We'll also remove the `example` folder in the `models/` folder.
+Clicking `Save` will automatically create a `models/staging/nyc_taxi` path containing the `stg_nyc_taxi__GREEN_TAXI_TRIPS_RAW.sql` file. We'll also remove the `example` folder in the `models/` folder.
 ```
 models/
 │   ├── staging
@@ -197,7 +206,7 @@ models/
 │   └── nyc_sources.yml    
 ```
 
-## Create macro
+## Create macro for getting payment type description
 
 Our taxi dataset features a `PAYMENT_TYPE` column, which uses a numeric code to identify how the passenger paid for the trip.
 - 0 = Flex Fare trip
@@ -295,7 +304,7 @@ We can see what the compiled code looks like by clicking on **Compile** (or pres
     end as payment_type_description, -- <=== Add column
 ```
 
-## Import dbt-utils package
+## Create surrogate key using macro from dbt-utils package
 
 The [dbt-utils package](https://hub.getdbt.com/dbt-labs/dbt_utils/latest/) is a collection of reusable macros and helper functions for that simplify common transformations, testing, and data modeling tasks across projects.
 
@@ -387,14 +396,14 @@ Once complete, switch to **Snowflake**, and sign in as `dbt_user`. Open a SQL fi
 
 ```sql
 SELECT tripid, filename, pickup_datetime, payment_type, payment_type_description
-FROM DBT_ANALYTICS.DBT_LNGUYEN.stg_nyc_taxi__GREEN_TAXI_TRIPS_RAW 
+from DBT_ANALYTICS.DBT_LNGUYEN.stg_nyc_taxi__GREEN_TAXI_TRIPS_RAW 
 LIMIT 10;
 ```
 - Replace `DBT_LNGUYEN` with the schema provided during the dbt project setup (default is `dvt_<first_name_initial + last_name>`)
 
 We should see our green taxi dataset with the two added columns.
 
-![04-db-01]
+![04-db-02]
 
 ## Clean data
 
@@ -471,11 +480,11 @@ dbt build --select stg_nyc_taxi__GREEN_TAXI_TRIPS_RAW.sql --vars 'is_test_run: f
 
 ## Dimensional modeling
 
-In this section, we''l organize our data into a star schema. We'll build a dimension table that holds the zone/location attributes, as well as a fact table that will contain one row per trip.
+In this section, we'll organize our data into a star schema. We'll build a dimension table that holds the zone/location attributes, as well as a fact table that will contain one row per trip.
 
 ### Create dimension table (Seeds)
 
-dbt seeds are CSV files located in a dbt project's `seeds/` directory that can be loaded into a data warehouse as tables. In this section, we'll add a lookup table for 
+dbt seeds are CSV files located in a dbt project's `seeds/` directory that can be loaded into a data warehouse as tables. This is ideal for static metadata like the Taxi Zone Lookup, which doesn't change frequently but is essential for dimensional joins.
 
 Download the [taxi_zone_lookup.csv](https://github.com/DataTalksClub/data-engineering-zoomcamp/blob/main/04-analytics-engineering/taxi_rides_ny/seeds/taxi_zone_lookup.csv) file from the DataTalksClub Github and add the file to the `seeds/` folder.
 
@@ -487,21 +496,21 @@ dbt seed
 
 In Snowflake, we'll see that a `TAXI_ZONE_LOOKUP` table has been added to the `DBT_ANALYTICS` database.
 
-![04-db-02]
+![04-db-03]
 
 We'll prepare the lookup table to be merged with our taxi data.
 
-Add a `core/` folder to `models`. Create a `dim_zones.sql` file within the `core/` folder.
+Create a new folder called `models/core` and add a `dim_zones.sql` file.
 
 ```sql
 -- dim_zones.sql
 
-SELECT
+select
     locationid as location_id,
     borough,
     zone,
     replace(service_zone, 'Boro', 'Green') as service_zone
-FROM {{ ref('taxi_zone_lookup') }}
+from {{ ref('taxi_zone_lookup') }}
 ```
 
 Click on **Build** to create our `dim_zones` model.
@@ -512,7 +521,7 @@ If you loaded the Yellow taxi data as well, you would union the two datasets in 
 
 This project only works with the Green taxi data, so the union step is excluded here. Instead, we will just join the Green taxi data with the taxi zone lookup table.
 
-In the `models/` directory, create a new folder called `intermediate` abd add a file called `fct_trips.sql`.
+Add another file called `fct_trips.sql` to the `core/` folder.
 
 ```sql
 -- fct_trips.sql
@@ -524,28 +533,28 @@ In the `models/` directory, create a new folder called `intermediate` abd add a 
 }}
 
 with green_tripdata as (
-    SELECT * 
-    FROM {{ ref('stg_nyc_taxi__GREEN_TAXI_TRIPS_RAW') }}
+    select * 
+    from {{ ref('stg_nyc_taxi__GREEN_TAXI_TRIPS_RAW') }}
 ),
 
 dim_zones as (
-    SELECT *
-    FROM {{ ref('dim_zones') }}
-    WHERE borough != 'Unknown'
+    select *
+    from {{ ref('dim_zones') }}
+    where borough != 'Unknown'
 )
 
-SELECT 
+select 
     trips.tripid,
     trips.vendor_id,
     trips.rate_code_id,
 
     trips.pickup_location_id,
-    pu_zones.borough AS pickup_borough,
-    pu_zones.zone AS pickup_zone_name,
+    pu_zones.borough as pickup_borough,
+    pu_zones.zone as pickup_zone_name,
 
     trips.dropoff_location_id,
-    do_zones.borough AS dropoff_borough,
-    do_zones.zone AS dropoff_zone_name,
+    do_zones.borough as dropoff_borough,
+    do_zones.zone as dropoff_zone_name,
 
     trips.pickup_datetime,
     trips.dropoff_datetime,
@@ -566,20 +575,60 @@ SELECT
     trips.payment_type,
     trips.payment_type_description
 
-FROM green_tripdata AS trips
-INNER JOIN dim_zones AS pu_zones 
-    ON trips.pickup_location_id = pu_zones.location_id
-INNER JOIN dim_zones AS do_zones 
-    ON trips.dropoff_location_id = do_zones.location_id
+from green_tripdata as trips
+inner join dim_zones as pu_zones 
+    on trips.pickup_location_id = pu_zones.location_id
+inner join dim_zones as do_zones 
+    on trips.dropoff_location_id = do_zones.location_id
 ```
 
 Click on **Build** to create our `fact_trips` model.
 
 In Snowflake, we are now able to query the `fct_trips` table and see the pickup and dropoff boroughs and zones for each trip.
 
-![04-db-03]
+![04-db-04]
+
+## Create Monthly Revenue Mart
+
+In this section, we build a **Mart**, which represents the final, consumption-ready layer of our project. While staging models focus on cleaning and fact tables focus on individual events, a mart focuses on a specific business process or entity.
+
+We will create a monthly revenue summary that aggregates data by pickup zone and month.
+
+Create a folder called `models/marts` and add a `fct_monthly_zone_revenue.sql` file.
+
+```sql
+-- fct_monthly_zone_revenue.sql
+
+with trips_data as (
+    select * from {{ ref('fct_trips') }}
+)
+
+    select 
+        pickup_zone_name as revenue_zone,
+        {{ dbt.date_trunc("month", "pickup_datetime") }} as revenue_month,
+        sum(fare_amount) as total_monthly_fare,
+        sum(extra) as total_monthly_extra,
+        sum(mta_tax) as total_monthly_mta_tax,
+        sum(tip_amount) as total_monthly_tip_amount,
+        sum(improvement_surcharge) as total_monthly_improvement_surcharge,
+        sum(total_amount) as total_monthly_revenue,
+        count(tripid) as total_monthly_trips,
+        avg(passenger_count) as avg_monthly_passenger_count,
+        avg(trip_distance) as avg_monthly_trip_distance
+
+    from trips_data
+    group by 1,2
+```
+
+The `dbt.date_trunc` macro allows us to standardize all pickup timestamps to the first day of their respective month. This provides a clean way to perform the monthly grouping.
+
+After clicking **Build**, we can query this table in Snowflake and analyze the monthly revenue for each zone:
+
+![04-db-05]
 
 
 [04-db-01]: ../img/04-db-01.png
 [04-db-02]: ../img/04-db-02.png
 [04-db-03]: ../img/04-db-03.png
+[04-db-04]: ../img/04-db-04.png
+[04-db-05]: ../img/04-db-05.png

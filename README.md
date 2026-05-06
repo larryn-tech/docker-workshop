@@ -11,13 +11,14 @@ The goal of this course is to master the fundamentals of data engineering by bui
 | 1 | [Containerization & Infrastructure as Code](./01-docker-terraform/) | Completed | Docker, Terraform, AWS, Postgres |
 | 2 | [Workflow Orchestration](./02-workflow-orchestration/) | Completed | Kestra |
 | 3 | [Data Warehousing](./03-data-warehouse/) | Completed | Snowflake |
-| 4 | [Analytics Engineering](./04-analytics-engineering/) | In-progress | dbt |
+| 4 | [Analytics Engineering](./04-analytics-engineering/) | Completed | dbt |
 | 5 | Data Platforms | Upcoming | Bruin |
 | 6 | Batch Processing | Upcoming | Apache Spark |
 | 7 | Streaming | Upcoming | Kafka |
 
-## 🛠️ Technologies Used
+## Technologies Used
 * **Infrastructure:** Terraform (IaC), Amazon Web Services (AWS)
 * **Containerization:** Docker & Docker Compose
 * **Orchestration:** Kestra
 * **Data warehouse:** Snowflake
+* **Data transformation & modeling:** dbt (Data Build Tool)

@@ -8,7 +8,9 @@ In this module, we implement an ELT workflow to convert raw NYC Green Taxi recor
 
 - Macro Development: Creating reusable Jinja logic to handle complex business rules
 
-- Dimensional Modeling: Utilizing dbt Seeds to ingest taxi zone metadata and performing  joins to create the final Fact and Dimension tables
+- Dimensional Modeling: Utilizing dbt Seeds to ingest taxi zone metadata and performing joins to create the final Fact and Dimension tables
+
+- Mart Development: Building an aggregate table to show monthly revenue report by zone
 
 ![04-db-01]
 

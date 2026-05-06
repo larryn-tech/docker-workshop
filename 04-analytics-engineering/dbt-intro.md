@@ -469,7 +469,7 @@ dbt test --select stg_nyc_taxi__GREEN_TAXI_TRIPS_RAW
 Warnings from the test would be displayed in the CLI.
 
 
-## Documentation
+### Documentation
 
 Documentation is an important feature in dbt, as it ensures that every stakeholder understands where a piece of data comes from and how it was calculated. Descriptions can be embeded directly into the `.yml` files and be used by dbt to generate an interative website that serves as a single source of truth.
 
@@ -556,3 +556,21 @@ dbt docs generate
 # 2. Start a local web server to view the interactive site
 dbt docs serve
 ```
+
+### Deployment
+
+In dbt, deployment is the process of running the models we created in our development environment in a production one. Development and later deployment allows us to continue building and testing models without affecting our production environment. This ensures that the datasets used by BI tools and stakeholders are updated on a reliable schedule and are protected from breaking changes that may occur during development.
+
+A deployment environment will normally have a different schema (e.g., `DBT_USER`) in our data warehouse and ideally a different user compared to a production environment (e.g. `ANALYTICS`).
+
+Example of a development-deployment workflow:
+- Develop in a user branch
+- Open a PR to merge into the main branch
+- Webhooks signal to dbt Cloud to run a Continuous Integration (CI) job against a temporary schema
+- If run is completed successfully, branch may be merged into main
+- Run the new models in production using the main branch
+- Schedule the models
+
+dbt Cloud includes a scheduler that allows you to create jobs to run in production. A single job can run multiple commands and can be triggered manually or on a schedule. Each job will keep a log of the runs, and each run will keep logs for each command.
+
+Deployment is also the stage where the Lineage Graph (DAG) and documentation site are hosted. This provides a live, interactive map of the data's journey, allowing everyone in the organization to see how metrics are calculated and verify the production pipeline's health.
